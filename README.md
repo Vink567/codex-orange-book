@@ -10,6 +10,14 @@
 > 本文以 2026-06-22 可访问的 Codex App、Codex CLI、Codex IDE Extension、Codex Web / Cloud 公开能力和实测界面为参考。Codex 更新很快，安装方式、模型名称、额度、入口位置和命令参数都可能变化；涉及具体功能和价格时，请以 OpenAI 官方文档、Codex 当前版本和你账号实际显示为准。  
 > CC Switch、DeepSeek 等第三方工具和模型接入方案仅作为扩展方法记录，不属于 OpenAI 官方功能。
 
+## 阅读入口
+
+- [在线阅读](https://bozhoudev.github.io/codex-orange-book/)
+- [下载 PDF](https://raw.githubusercontent.com/bozhouDev/codex-orange-book/main/Codex%E6%A9%99%E7%9A%AE%E4%B9%A6.pdf)
+- [Markdown 原文](https://github.com/bozhouDev/codex-orange-book/blob/main/README.md)
+
+> GitHub 文件页可能无法稳定预览较大的 PDF，并显示“无法渲染代码块”等误导提示。建议使用上面的在线阅读入口，或直接下载 PDF。
+
 ## 目录
 
 - [0. 使用说明](#0-使用说明)

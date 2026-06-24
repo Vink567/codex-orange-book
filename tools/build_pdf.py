@@ -10,19 +10,53 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
 import markdown
+from PIL import Image, ImageOps
 
 ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 COVER = ROOT / "cover.html"
 BOOK_HTML = ROOT / "book.html"
 OUTPUT_PDF = ROOT / "Codex橙皮书.pdf"
+PDF_ASSET_CACHE = ROOT / ".cache" / "pdf-assets"
+PDF_IMAGE_MAX_WIDTH = 1400
+PDF_IMAGE_JPEG_QUALITY = 82
 
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+def resolve_chrome() -> Path:
+    env_path = os.environ.get("CHROME_PATH")
+    if env_path:
+        candidate = Path(env_path)
+        if candidate.exists():
+            return candidate
+        raise FileNotFoundError(f"CHROME_PATH does not exist: {candidate}")
+
+    path_candidates = [
+        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        Path(os.environ.get("ProgramFiles", "")) / "Google/Chrome/Application/chrome.exe",
+        Path(os.environ.get("ProgramFiles(x86)", "")) / "Google/Chrome/Application/chrome.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Google/Chrome/Application/chrome.exe",
+        Path(os.environ.get("ProgramFiles", "")) / "Microsoft/Edge/Application/msedge.exe",
+        Path(os.environ.get("ProgramFiles(x86)", "")) / "Microsoft/Edge/Application/msedge.exe",
+    ]
+    for candidate in path_candidates:
+        if candidate.exists():
+            return candidate
+
+    for command in ("google-chrome", "chromium", "chromium-browser", "chrome", "msedge"):
+        found = shutil.which(command)
+        if found:
+            return Path(found)
+
+    raise FileNotFoundError(
+        "未找到 Chrome/Chromium/Edge。请安装 Chrome，或通过 CHROME_PATH 指定浏览器可执行文件。"
+    )
 
 
 def extract_cover() -> tuple[str, str]:
@@ -52,6 +86,55 @@ def render_readme() -> str:
         output_format="html5",
     )
     return md.convert(text)
+
+
+def _to_pdf_jpeg(source: Path, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with Image.open(source) as raw_image:
+        image = ImageOps.exif_transpose(raw_image)
+        image.thumbnail((PDF_IMAGE_MAX_WIDTH, PDF_IMAGE_MAX_WIDTH * 4), Image.Resampling.LANCZOS)
+
+        if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+            canvas = Image.new("RGB", image.size, "#ffffff")
+            canvas.paste(image.convert("RGBA"), mask=image.convert("RGBA").getchannel("A"))
+            image = canvas
+        else:
+            image = image.convert("RGB")
+
+        image.save(
+            output,
+            "JPEG",
+            quality=PDF_IMAGE_JPEG_QUALITY,
+            optimize=True,
+            progressive=True,
+        )
+
+
+def prepare_pdf_assets(content_html: str, root: Path = ROOT) -> str:
+    """Use PDF-sized image copies so Chrome does not embed huge PNG bitmaps."""
+    cache = root / ".cache" / "pdf-assets"
+    pattern = re.compile(
+        r'(?P<prefix>\bsrc\s*=\s*["\'])(?P<src>assets/images/[^"\']+\.(?:png|jpg|jpeg|webp))(?P<suffix>["\'])',
+        re.I,
+    )
+    converted: dict[str, str] = {}
+
+    def replace(match: re.Match[str]) -> str:
+        src = match.group("src")
+        source = root / src
+        if not source.exists():
+            return match.group(0)
+
+        output = cache / Path(src).with_suffix(".jpg")
+        _to_pdf_jpeg(source, output)
+        rewritten = output.relative_to(root).as_posix()
+        converted[src] = rewritten
+        return f"{match.group('prefix')}{rewritten}{match.group('suffix')}"
+
+    optimized_html = pattern.sub(replace, content_html)
+    if converted:
+        print(f"已为 PDF 优化 {len(converted)} 张图片到 {cache.relative_to(root)}")
+    return optimized_html
 
 
 # 整本书的打印 CSS：封面命名页满版，正文页带页边距
@@ -157,7 +240,7 @@ BOOK_CSS = """
 
 def build() -> None:
     cover_style, cover_body = extract_cover()
-    content_html = render_readme()
+    content_html = prepare_pdf_assets(render_readme())
 
     document = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -184,7 +267,7 @@ def build() -> None:
 
     subprocess.run(
         [
-            CHROME,
+            str(resolve_chrome()),
             "--headless",
             "--disable-gpu",
             "--no-pdf-header-footer",
